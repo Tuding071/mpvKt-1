@@ -1,4 +1,4 @@
-name: Make Nightly
+name: Make Debug (ARM64)
 
 permissions:
   contents: write
@@ -27,54 +27,22 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Build with Gradle
-        run: ./gradlew assemblePreview
+      # 🧱 Build only the ARM64 debug APK
+      - name: Build ARM64 Debug APK
+        run: ./gradlew assembleArm64v8aDebug
 
-      - name: Sign apk
-        uses: r0adkll/sign-android-release@v1
-        with:
-          releaseDirectory: app/build/outputs/apk/preview
-          signingKeyBase64: ${{ secrets.SIGNING_KEYSTORE }}
-          alias: ${{ secrets.SIGNING_KEY_ALIAS }}
-          keyStorePassword: ${{ secrets.SIGNING_STORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
-        env:
-          BUILD_TOOLS_VERSION: "35.0.0"
-
-      - name: Copy build artifacts
+      # 🗂 Rename and prepare the artifact
+      - name: Prepare artifact
         run: |
           set -e
-
           commit_count=$(git rev-list --count HEAD)
           echo "COMMIT_COUNT=$commit_count" >> $GITHUB_ENV
+          mkdir -p output
+          cp app/build/outputs/apk/arm64-v8a/debug/app-arm64-v8a-debug.apk output/mpvKt-arm64-debug.apk
 
-          declare -a apks=("universal" "arm64-v8a" "armeabi-v7a" "x86" "x86_64")
-
-          printf "%s\n" "${apks[@]}" | xargs -n 1 -I {} sh -c '
-          cp app/build/outputs/apk/preview/app-{}-preview-signed.apk mpvKt-{}.apk'
-
-      - name: Upload the universal artifact
+      # 📤 Upload just the ARM64 debug APK
+      - name: Upload ARM64 APK
         uses: actions/upload-artifact@v4
         with:
-          path: ./mpvKt-universal.apk
-          name: universal-r${{ env.COMMIT_COUNT }}
-      - name: Upload the arm64-v8a artifact
-        uses: actions/upload-artifact@v4
-        with:
-          path: ./mpvKt-arm64-v8a.apk
-          name: arm64-v8a-r${{ env.COMMIT_COUNT }}
-      - name: Upload the armeabi-v7a artifact
-        uses: actions/upload-artifact@v4
-        with:
-          path: ./mpvKt-armeabi-v7a.apk
-          name: armeabi-v7a-r${{ env.COMMIT_COUNT }}
-      - name: Upload the x86 artifact
-        uses: actions/upload-artifact@v4
-        with:
-          path: ./mpvKt-x86.apk
-          name: x86-r${{ env.COMMIT_COUNT }}
-      - name: Upload the x86_64 artifact
-        uses: actions/upload-artifact@v4
-        with:
-          path: ./mpvKt-x86_64.apk
-          name: x86_64-r${{ env.COMMIT_COUNT }}
+          name: arm64-debug-r${{ env.COMMIT_COUNT }}
+          path: output/mpvKt-arm64-debug.apk
