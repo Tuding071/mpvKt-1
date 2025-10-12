@@ -187,7 +187,7 @@ fun PlayerControls(
               Pair(.7f, Color.Transparent),
               Pair(1f, Color.Black),
             ),
-            alpha = transparentOverlay,
+            alpha = 0f,
           )
           .padding(horizontal = MaterialTheme.spacing.medium),
       ) {
