@@ -1,47 +1,62 @@
-name: Make Debug (ARM64)
+name: Make Debug (ARM64 only)
 
 permissions:
   contents: write
 
 on:
   workflow_dispatch:
-  push:
+  # push:   # ❌ Disabled auto-build on push. Run manually from Actions tab.
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: 🧾 Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup JDK 17
+      - name: ⚙️ Setup JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'adopt'
           java-version: 17
           cache: 'gradle'
 
-      - name: Make gradlew executable
+      - name: 🔓 Make gradlew executable
         run: chmod +x ./gradlew
 
-      # 🧱 Build only the ARM64 debug APK
-      - name: Build ARM64 Debug APK
-        run: ./gradlew assembleArm64v8aDebug
+      - name: 🏗️ Build Debug APKs
+        run: ./gradlew assembleDebug
 
-      # 🗂 Rename and prepare the artifact
-      - name: Prepare artifact
+      - name: 📁 Locate and copy ARM64 APK
         run: |
           set -e
           commit_count=$(git rev-list --count HEAD)
           echo "COMMIT_COUNT=$commit_count" >> $GITHUB_ENV
           mkdir -p output
-          cp app/build/outputs/apk/arm64-v8a/debug/app-arm64-v8a-debug.apk output/mpvKt-arm64-debug.apk
 
-      # 📤 Upload just the ARM64 debug APK
-      - name: Upload ARM64 APK
+          # Try to find arm64 debug APK
+          apk_path=$(find app/build/outputs/apk -type f -name "*arm64*-debug.apk" | head -n 1)
+
+          # If not found, fallback to universal debug APK
+          if [ -z "$apk_path" ]; then
+            echo "⚠️ ARM64 debug APK not found, trying universal..."
+            apk_path=$(find app/build/outputs/apk -type f -name "*universal*-debug.apk" | head -n 1)
+          fi
+
+          # If still not found, list all APKs and fail
+          if [ -z "$apk_path" ]; then
+            echo "❌ No ARM64 or universal debug APK found!"
+            find app/build/outputs/apk -type f
+            exit 1
+          fi
+
+          echo "✅ Found APK: $apk_path"
+          cp "$apk_path" output/mpvKt-arm64-debug.apk
+
+      - name: 📤 Upload ARM64 Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: arm64-debug-r${{ env.COMMIT_COUNT }}
