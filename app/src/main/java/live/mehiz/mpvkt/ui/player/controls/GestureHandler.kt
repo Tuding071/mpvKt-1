@@ -182,8 +182,8 @@ fun GestureHandler(
           if ((position ?: 0) >= (duration ?: 0) && dragAmount > 0) return@detectHorizontalDragGestures
 
           // 🟢 Gesture step control — change these values anytime
-          val PIXELS_PER_STEP = 12f     // each 12 pixels of horizontal drag
-          val MS_PER_STEP = 83           // equals 83 ms seek change
+          val PIXELS_PER_STEP = 14f     // each 12 pixels of horizontal drag
+          val MS_PER_STEP = 111           // equals 83 ms seek change
           // 🟢 End of adjustable values
 
           calculateNewHorizontalGestureValue(
