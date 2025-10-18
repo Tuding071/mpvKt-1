@@ -8,26 +8,12 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.safeGestures
-import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -74,6 +60,7 @@ fun GestureHandler(
   val seekAmount by viewModel.doubleTapSeekAmount.collectAsState()
   val isSeekingForwards by viewModel.isSeekingForwards.collectAsState()
   var isDoubleTapSeeking by remember { mutableStateOf(false) }
+
   LaunchedEffect(seekAmount) {
     delay(800)
     isDoubleTapSeeking = false
@@ -82,6 +69,7 @@ fun GestureHandler(
     delay(100)
     viewModel.hideSeekBar()
   }
+
   val multipleSpeedGesture by playerPreferences.holdForMultipleSpeed.collectAsState()
   val brightnessGesture = playerPreferences.brightnessGesture.get()
   val volumeGesture by playerPreferences.volumeGesture.collectAsState()
@@ -95,6 +83,7 @@ fun GestureHandler(
   val currentBrightness by viewModel.currentBrightness.collectAsState()
   val volumeBoostingCap = audioPreferences.volumeBoostCap.get()
   val haptics = LocalHapticFeedback.current
+
   Box(
     modifier = modifier
       .fillMaxSize()
@@ -162,12 +151,13 @@ fun GestureHandler(
       }
       .pointerInput(areControlsLocked) {
         if (!seekGesture || areControlsLocked) return@pointerInput
-        var startingPosition = position ?: 0
+        var startingPosition = (position ?: 0).toFloat()
         var startingX = 0f
         var wasPlayerAlreadyPause = false
+
         detectHorizontalDragGestures(
           onDragStart = {
-            startingPosition = position ?: 0
+            startingPosition = (position ?: 0).toFloat()
             startingX = it.x
             wasPlayerAlreadyPause = paused ?: false
             viewModel.pause()
@@ -177,32 +167,33 @@ fun GestureHandler(
             viewModel.hideSeekBar()
             if (!wasPlayerAlreadyPause) viewModel.unpause()
           },
-        ) { change, dragAmount ->
-          if ((position ?: 0) <= 0f && dragAmount < 0) return@detectHorizontalDragGestures
-          if ((position ?: 0) >= (duration ?: 0) && dragAmount > 0) return@detectHorizontalDragGestures
+        ) { change, _ ->
+          val currentPos = (position ?: 0).toFloat()
+          if (currentPos <= 0f && change.position.x < startingX) return@detectHorizontalDragGestures
+          if (currentPos >= (duration ?: 0).toFloat() && change.position.x > startingX) return@detectHorizontalDragGestures
 
           // 🟢 Gesture step control — change these values anytime
-          val PIXELS_PER_STEP = 14f     // each 12 pixels of horizontal drag
-          val MS_PER_STEP = 111           // equals 83 ms seek change
+          val PIXELS_PER_STEP = 14f     // each 14 pixels of horizontal drag
+          val MS_PER_STEP = 111         // equals 111 ms per step
           // 🟢 End of adjustable values
 
-          calculateNewHorizontalGestureValue(
+          val newPos = calculateNewHorizontalGestureValue(
             startingPosition,
             startingX,
             change.position.x,
             pixelsPerStep = PIXELS_PER_STEP,
             msPerStep = MS_PER_STEP
-          ).let {
-            viewModel.gestureSeekAmount.update { _ ->
-              Pair(
-                startingPosition,
-                (it - startingPosition)
-                  .coerceIn(0 - startingPosition, ((duration ?: 0) - startingPosition)),
-              )
-            }
-            viewModel.seekTo(it, preciseSeeking)
+          )
+
+          viewModel.gestureSeekAmount.update {
+            Pair(
+              startingPosition.toInt(),
+              (newPos - startingPosition)
+                .coerceIn(0f - startingPosition, ((duration ?: 0).toFloat() - startingPosition))
+            )
           }
 
+          viewModel.seekTo(newPos.toInt(), preciseSeeking)
           if (showSeekbarWhenSeeking) viewModel.showSeekBar()
         }
       }
@@ -247,8 +238,7 @@ fun GestureHandler(
                   mpvVolumeStartingY,
                   change.position.y,
                   mpvVolumeGestureSens,
-                )
-                  .coerceIn(100..volumeBoostingCap + 100),
+                ).coerceIn(100..volumeBoostingCap + 100),
               )
             } else {
               if (startingY == 0f) {
@@ -277,10 +267,8 @@ fun GestureHandler(
                 if (change.position.x < size.width / 2) changeBrightness() else changeVolume()
               }
             }
-
             brightnessGesture -> changeBrightness()
             volumeGesture -> changeVolume()
-            else -> {}
           }
         }
       },
@@ -303,14 +291,12 @@ fun DoubleTapToSeekOvals(
     modifier = modifier.fillMaxSize(),
     contentAlignment = if (amount > 0) Alignment.CenterEnd else Alignment.CenterStart,
   ) {
-    CompositionLocalProvider(
-      LocalRippleConfiguration provides playerRippleConfiguration,
-    ) {
+    CompositionLocalProvider(LocalRippleConfiguration provides playerRippleConfiguration) {
       if (amount != 0) {
         Box(
           modifier = Modifier
             .fillMaxHeight()
-            .fillMaxWidth(0.4f), // 2 fifths
+            .fillMaxWidth(0.4f),
           contentAlignment = Alignment.Center,
         ) {
           if (showOvals) {
@@ -347,17 +333,16 @@ fun calculateNewVerticalGestureValue(originalValue: Float, startingY: Float, new
   return originalValue + ((startingY - newY) * sensitivity)
 }
 
-// 🟩 Pixel-based seek calculation (custom)
-// This replaces the original linear sensitivity version
+// 🟩 Fixed pixel-based seek with float precision (no truncation)
 fun calculateNewHorizontalGestureValue(
-  originalValue: Int,
+  originalValue: Float,
   startingX: Float,
   newX: Float,
-  pixelsPerStep: Float = 14f,   // 🔧 default 12 px per step
-  msPerStep: Int = 111           // 🔧 default 83 ms per step
-): Int {
+  pixelsPerStep: Float = 14f,
+  msPerStep: Int = 111
+): Float {
   val deltaPixels = newX - startingX
-  val steps = (deltaPixels / pixelsPerStep).toInt()
+  val steps = deltaPixels / pixelsPerStep
   val deltaSeconds = (steps * msPerStep) / 1000f
-  return (originalValue + deltaSeconds).toInt()
+  return originalValue + deltaSeconds // keep float precision!
 }
