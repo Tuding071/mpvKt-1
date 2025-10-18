@@ -353,8 +353,8 @@ fun calculateNewHorizontalGestureValue(
   originalValue: Int,
   startingX: Float,
   newX: Float,
-  pixelsPerStep: Float = 12f,   // 🔧 default 12 px per step
-  msPerStep: Int = 83           // 🔧 default 83 ms per step
+  pixelsPerStep: Float = 14f,   // 🔧 default 12 px per step
+  msPerStep: Int = 111           // 🔧 default 83 ms per step
 ): Int {
   val deltaPixels = newX - startingX
   val steps = (deltaPixels / pixelsPerStep).toInt()
