@@ -180,11 +180,18 @@ fun GestureHandler(
         ) { change, dragAmount ->
           if ((position ?: 0) <= 0f && dragAmount < 0) return@detectHorizontalDragGestures
           if ((position ?: 0) >= (duration ?: 0) && dragAmount > 0) return@detectHorizontalDragGestures
+
+          // 🟢 Gesture step control — change these values anytime
+          val PIXELS_PER_STEP = 12f     // each 12 pixels of horizontal drag
+          val MS_PER_STEP = 83           // equals 83 ms seek change
+          // 🟢 End of adjustable values
+
           calculateNewHorizontalGestureValue(
             startingPosition,
             startingX,
             change.position.x,
-            0.15f
+            pixelsPerStep = PIXELS_PER_STEP,
+            msPerStep = MS_PER_STEP
           ).let {
             viewModel.gestureSeekAmount.update { _ ->
               Pair(
@@ -272,7 +279,6 @@ fun GestureHandler(
             }
 
             brightnessGesture -> changeBrightness()
-            // it's not always true, AS is drunk
             volumeGesture -> changeVolume()
             else -> {}
           }
@@ -341,10 +347,17 @@ fun calculateNewVerticalGestureValue(originalValue: Float, startingY: Float, new
   return originalValue + ((startingY - newY) * sensitivity)
 }
 
-fun calculateNewHorizontalGestureValue(originalValue: Int, startingX: Float, newX: Float, sensitivity: Float): Int {
-  return originalValue + ((newX - startingX) * sensitivity).toInt()
-}
-
-fun calculateNewHorizontalGestureValue(originalValue: Float, startingX: Float, newX: Float, sensitivity: Float): Float {
-  return originalValue + ((newX - startingX) * sensitivity)
+// 🟩 Pixel-based seek calculation (custom)
+// This replaces the original linear sensitivity version
+fun calculateNewHorizontalGestureValue(
+  originalValue: Int,
+  startingX: Float,
+  newX: Float,
+  pixelsPerStep: Float = 12f,   // 🔧 default 12 px per step
+  msPerStep: Int = 83           // 🔧 default 83 ms per step
+): Int {
+  val deltaPixels = newX - startingX
+  val steps = (deltaPixels / pixelsPerStep).toInt()
+  val deltaSeconds = (steps * msPerStep) / 1000f
+  return (originalValue + deltaSeconds).toInt()
 }
