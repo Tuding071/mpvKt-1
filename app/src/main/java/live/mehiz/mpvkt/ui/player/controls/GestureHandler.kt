@@ -53,6 +53,7 @@ import live.mehiz.mpvkt.ui.player.PlayerViewModel
 import live.mehiz.mpvkt.ui.player.controls.components.DoubleTapSeekTriangles
 import live.mehiz.mpvkt.ui.theme.playerRippleConfiguration
 import org.koin.compose.koinInject
+import android.os.SystemClock
 
 @Suppress("CyclomaticComplexMethod", "MultipleEmitters")
 @Composable
@@ -74,6 +75,7 @@ fun GestureHandler(
   val seekAmount by viewModel.doubleTapSeekAmount.collectAsState()
   val isSeekingForwards by viewModel.isSeekingForwards.collectAsState()
   var isDoubleTapSeeking by remember { mutableStateOf(false) }
+
   LaunchedEffect(seekAmount) {
     delay(800)
     isDoubleTapSeeking = false
@@ -82,6 +84,7 @@ fun GestureHandler(
     delay(100)
     viewModel.hideSeekBar()
   }
+
   val multipleSpeedGesture by playerPreferences.holdForMultipleSpeed.collectAsState()
   val brightnessGesture = playerPreferences.brightnessGesture.get()
   val volumeGesture by playerPreferences.volumeGesture.collectAsState()
@@ -95,6 +98,11 @@ fun GestureHandler(
   val currentBrightness by viewModel.currentBrightness.collectAsState()
   val volumeBoostingCap = audioPreferences.volumeBoostCap.get()
   val haptics = LocalHapticFeedback.current
+
+  // ⏱ Frame update throttling variables
+  var lastFrameUpdateTime by remember { mutableStateOf(0L) }
+  val frameUpdateIntervalMs = 333L // ~3 times per second
+
   Box(
     modifier = modifier
       .fillMaxSize()
@@ -165,6 +173,7 @@ fun GestureHandler(
         var startingPosition = position ?: 0
         var startingX = 0f
         var wasPlayerAlreadyPause = false
+
         detectHorizontalDragGestures(
           onDragStart = {
             startingPosition = position ?: 0
@@ -175,30 +184,35 @@ fun GestureHandler(
           onDragEnd = {
             viewModel.gestureSeekAmount.update { null }
             viewModel.hideSeekBar()
+            // 🔁 Final seek to ensure exact frame on release
+            val finalPos = viewModel.gestureSeekAmount.value?.let { p -> (p.first + p.second) } ?: position ?: 0
+            viewModel.seekTo(finalPos, preciseSeeking)
             if (!wasPlayerAlreadyPause) viewModel.unpause()
           },
         ) { change, dragAmount ->
           if ((position ?: 0) <= 0f && dragAmount < 0) return@detectHorizontalDragGestures
           if ((position ?: 0) >= (duration ?: 0) && dragAmount > 0) return@detectHorizontalDragGestures
-          calculateNewHorizontalGestureValue(
+
+          val newTarget = calculateNewHorizontalGestureValue(
             startingPosition,
             startingX,
             change.position.x,
             0.05f
-          ).let {
-            viewModel.gestureSeekAmount.update { _ ->
-              Pair(
-                startingPosition,
-                (it - startingPosition)
-                  .coerceIn(0 - startingPosition, ((duration ?: 0) - startingPosition)),
-              )
-            }
-            viewModel.seekTo(it, preciseSeeking)
+          ).coerceIn(0, duration ?: 0)
+
+          viewModel.gestureSeekAmount.update { Pair(startingPosition, newTarget - startingPosition) }
+
+          // 🧩 Throttled seek updates
+          val now = SystemClock.elapsedRealtime()
+          if (now - lastFrameUpdateTime >= frameUpdateIntervalMs) {
+            viewModel.seekTo(newTarget, preciseSeeking)
+            lastFrameUpdateTime = now
           }
 
           if (showSeekbarWhenSeeking) viewModel.showSeekBar()
         }
       }
+      // (Vertical gestures section unchanged)
       .pointerInput(areControlsLocked) {
         if ((!brightnessGesture && !volumeGesture) || areControlsLocked) return@pointerInput
         var startingY = 0f
@@ -240,8 +254,7 @@ fun GestureHandler(
                   mpvVolumeStartingY,
                   change.position.y,
                   mpvVolumeGestureSens,
-                )
-                  .coerceIn(100..volumeBoostingCap + 100),
+                ).coerceIn(100..volumeBoostingCap + 100),
               )
             } else {
               if (startingY == 0f) {
@@ -270,81 +283,11 @@ fun GestureHandler(
                 if (change.position.x < size.width / 2) changeBrightness() else changeVolume()
               }
             }
-
             brightnessGesture -> changeBrightness()
-            // it's not always true, AS is drunk
             volumeGesture -> changeVolume()
             else -> {}
           }
         }
       },
   )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun DoubleTapToSeekOvals(
-  amount: Int,
-  text: String?,
-  showOvals: Boolean,
-  showSeekIcon: Boolean,
-  showSeekTime: Boolean,
-  interactionSource: MutableInteractionSource,
-  modifier: Modifier = Modifier,
-) {
-  val alpha by animateFloatAsState(if (amount == 0) 0f else 0.2f, label = "double_tap_animation_alpha")
-  Box(
-    modifier = modifier.fillMaxSize(),
-    contentAlignment = if (amount > 0) Alignment.CenterEnd else Alignment.CenterStart,
-  ) {
-    CompositionLocalProvider(
-      LocalRippleConfiguration provides playerRippleConfiguration,
-    ) {
-      if (amount != 0) {
-        Box(
-          modifier = Modifier
-            .fillMaxHeight()
-            .fillMaxWidth(0.4f), // 2 fifths
-          contentAlignment = Alignment.Center,
-        ) {
-          if (showOvals) {
-            Box(
-              modifier = Modifier
-                .fillMaxSize()
-                .clip(if (amount > 0) RightSideOvalShape else LeftSideOvalShape)
-                .background(Color.White.copy(alpha))
-                .indication(interactionSource, ripple()),
-            )
-          }
-          if (showSeekIcon || showSeekTime) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-              DoubleTapSeekTriangles(isForward = amount > 0)
-              Text(
-                text = text ?: pluralStringResource(R.plurals.seconds, amount, amount),
-                fontSize = 12.sp,
-                textAlign = TextAlign.Center,
-                color = Color.White,
-              )
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-fun calculateNewVerticalGestureValue(originalValue: Int, startingY: Float, newY: Float, sensitivity: Float): Int {
-  return originalValue + ((startingY - newY) * sensitivity).toInt()
-}
-
-fun calculateNewVerticalGestureValue(originalValue: Float, startingY: Float, newY: Float, sensitivity: Float): Float {
-  return originalValue + ((startingY - newY) * sensitivity)
-}
-
-fun calculateNewHorizontalGestureValue(originalValue: Int, startingX: Float, newX: Float, sensitivity: Float): Int {
-  return originalValue + ((newX - startingX) * sensitivity).toInt()
-}
-
-fun calculateNewHorizontalGestureValue(originalValue: Float, startingX: Float, newX: Float, sensitivity: Float): Float {
-  return originalValue + ((newX - startingX) * sensitivity)
 }
