@@ -8,12 +8,26 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.safeGestures
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -149,15 +163,16 @@ fun GestureHandler(
           },
         )
       }
+      // 🟩 Horizontal drag seeking
       .pointerInput(areControlsLocked) {
         if (!seekGesture || areControlsLocked) return@pointerInput
-        var startingPosition = (position ?: 0).toFloat()
+        var startingPosition = position ?: 0
         var startingX = 0f
         var wasPlayerAlreadyPause = false
 
         detectHorizontalDragGestures(
           onDragStart = {
-            startingPosition = (position ?: 0).toFloat()
+            startingPosition = position ?: 0
             startingX = it.x
             wasPlayerAlreadyPause = paused ?: false
             viewModel.pause()
@@ -167,36 +182,37 @@ fun GestureHandler(
             viewModel.hideSeekBar()
             if (!wasPlayerAlreadyPause) viewModel.unpause()
           },
-        ) { change, _ ->
-          val currentPos = (position ?: 0).toFloat()
-          if (currentPos <= 0f && change.position.x < startingX) return@detectHorizontalDragGestures
-          if (currentPos >= (duration ?: 0).toFloat() && change.position.x > startingX) return@detectHorizontalDragGestures
+        ) { change, dragAmount ->
+          if ((position ?: 0) <= 0f && dragAmount < 0) return@detectHorizontalDragGestures
+          if ((position ?: 0) >= (duration ?: 0) && dragAmount > 0) return@detectHorizontalDragGestures
 
-          // 🟢 Gesture step control — change these values anytime
-          val PIXELS_PER_STEP = 14f     // each 14 pixels of horizontal drag
-          val MS_PER_STEP = 111         // equals 111 ms per step
-          // 🟢 End of adjustable values
+          val PIXELS_PER_STEP = 14f
+          val MS_PER_STEP = 111
 
           val newPos = calculateNewHorizontalGestureValue(
-            startingPosition,
+            startingPosition.toFloat(),
             startingX,
             change.position.x,
             pixelsPerStep = PIXELS_PER_STEP,
             msPerStep = MS_PER_STEP
           )
 
+          // Update seek overlay (UI uses Ints)
           viewModel.gestureSeekAmount.update {
             Pair(
-              startingPosition.toInt(),
-              (newPos - startingPosition)
-                .coerceIn(0f - startingPosition, ((duration ?: 0).toFloat() - startingPosition))
+              startingPosition,
+              (newPos - startingPosition).toInt()
+                .coerceIn(-startingPosition, ((duration ?: 0) - startingPosition))
             )
           }
 
-          viewModel.seekTo(newPos.toInt(), preciseSeeking)
+          // Real-time seek precision
+          MPVLib.command(arrayOf("seek", newPos.toString(), "absolute+exact"))
+
           if (showSeekbarWhenSeeking) viewModel.showSeekBar()
         }
       }
+      // 🟩 Vertical gesture handlers (unchanged)
       .pointerInput(areControlsLocked) {
         if ((!brightnessGesture && !volumeGesture) || areControlsLocked) return@pointerInput
         var startingY = 0f
@@ -238,7 +254,8 @@ fun GestureHandler(
                   mpvVolumeStartingY,
                   change.position.y,
                   mpvVolumeGestureSens,
-                ).coerceIn(100..volumeBoostingCap + 100),
+                )
+                  .coerceIn(100..volumeBoostingCap + 100),
               )
             } else {
               if (startingY == 0f) {
@@ -267,8 +284,10 @@ fun GestureHandler(
                 if (change.position.x < size.width / 2) changeBrightness() else changeVolume()
               }
             }
+
             brightnessGesture -> changeBrightness()
             volumeGesture -> changeVolume()
+            else -> {}
           }
         }
       },
@@ -291,7 +310,9 @@ fun DoubleTapToSeekOvals(
     modifier = modifier.fillMaxSize(),
     contentAlignment = if (amount > 0) Alignment.CenterEnd else Alignment.CenterStart,
   ) {
-    CompositionLocalProvider(LocalRippleConfiguration provides playerRippleConfiguration) {
+    CompositionLocalProvider(
+      LocalRippleConfiguration provides playerRippleConfiguration,
+    ) {
       if (amount != 0) {
         Box(
           modifier = Modifier
@@ -333,7 +354,7 @@ fun calculateNewVerticalGestureValue(originalValue: Float, startingY: Float, new
   return originalValue + ((startingY - newY) * sensitivity)
 }
 
-// 🟩 Fixed pixel-based seek with float precision (no truncation)
+// 🟩 Pixel-based seek calculation with float precision
 fun calculateNewHorizontalGestureValue(
   originalValue: Float,
   startingX: Float,
@@ -344,5 +365,5 @@ fun calculateNewHorizontalGestureValue(
   val deltaPixels = newX - startingX
   val steps = deltaPixels / pixelsPerStep
   val deltaSeconds = (steps * msPerStep) / 1000f
-  return originalValue + deltaSeconds // keep float precision!
+  return originalValue + deltaSeconds
 }
